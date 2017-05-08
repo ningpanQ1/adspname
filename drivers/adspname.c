@@ -335,7 +335,7 @@ int adspname_init ( void )
 	for(loopc = 0; loopc < SEARCH_BOARD_NAME_LENGTH; loopc++)
 	{
 		if((uc_ptaddr[loopc]=='T' && uc_ptaddr[loopc+1]=='P' && uc_ptaddr[loopc+2]=='C')
-		        || (uc_ptaddr[loopc]=='A' && uc_ptaddr[loopc+1]=='D' && uc_ptaddr[loopc+2]=='A' && uc_ptaddr[loopc+3]=='M')
+				|| (uc_ptaddr[loopc]=='A' && uc_ptaddr[loopc+1]=='D' && uc_ptaddr[loopc+2]=='A' && uc_ptaddr[loopc+3]=='M')
 				|| (uc_ptaddr[loopc]=='P' && uc_ptaddr[loopc+1]=='P' && uc_ptaddr[loopc+2]=='C')
 				|| (uc_ptaddr[loopc]=='U' && uc_ptaddr[loopc+1]=='N' && uc_ptaddr[loopc+2]=='O')
 				|| (uc_ptaddr[loopc]=='I' && uc_ptaddr[loopc+1]=='T' && uc_ptaddr[loopc+2]=='A')
