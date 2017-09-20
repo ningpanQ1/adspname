@@ -11,14 +11,19 @@
  *****************************************************************************
 #############################################################################
 
-File: 	    adspname.c
-Version:         1.00 <01/16/2006>
+File: 	         adspname.c
 Author:          Joshua Lan
-Change log:      Version 1.00 <01/16/2006>
-- Inivial version
+Version:         2.00 <09/19/2017>
+
+Change log:      Version 1.00 <01/16/2006> Joshua Lan
+                   - Inivial version
+                 Version 2.00 <09/19/2017> Ji Xu
+                   - Update to support detect Advantech product name
+				     in UEFI BIOS(DMI).
+                   - Add some new ioctl item.
 
 Description:     This is a virtual driver to detect Advantech module.
-Status: 	    works
+Status: 	     works
 
 Permission to use, copy, modify, and distribute this software and its
 documentation for any purpose and without fee is hereby granted, provided
@@ -40,6 +45,7 @@ implied warranty.
 #include <linux/interrupt.h>
 #include <linux/ioport.h>
 #include <linux/ioctl.h>
+#include <linux/dmi.h>
 #include <asm/io.h>
 #include <linux/pci.h>
 #include <linux/poll.h>
@@ -55,10 +61,10 @@ implied warranty.
 #define KERNEL_VERSION(a,b,c) ((a)*65536+(b)*256+(c))
 #endif
 
-#define ADVANTECH_DIO_VER               "1.02"
-#define ADVANTECH_DIO_DATE              "08/09/2016" 
+#define ADVANTECH_ADSPNAME_VER   "2.00"
+#define ADVANTECH_ADSPNAME_DATE  "09/19/2017" 
 
-#define ADSPNAME_MAGIC 			'p'
+#define ADSPNAME_MAGIC 		'p'
 #define GETPNAME			_IO(ADSPNAME_MAGIC, 1)
 #define CHKADVBOARD			_IO(ADSPNAME_MAGIC, 2)
 
@@ -69,16 +75,14 @@ implied warranty.
 #define DEBUGPRINT(a, ...)
 #endif
 
-#define DEVICE_NODE_NAME "adspname"
-#define DEVICE_CLASS_NAME "adspname"
-#define DEVICE_FILE_NAME "adspname"
-#define ADVSPNAME_MAJOR 0
-#define DEBUG
-#define PPC_DEVICE
+#define DEVICE_NODE_NAME 		"adspname"
+#define DEVICE_CLASS_NAME 		"adspname"
+#define DEVICE_FILE_NAME 		"adspname"
+#define ADVSPNAME_MAJOR 		0
 /****************************************/
 #define _ADVANTECH_BOARD_NAME_LENGTH        64
-#define SEARCH_BOARD_NAME_LENGTH			65536
-#define SEARCH_BOARD_NAME_ADDRESS			0x000F0000
+#define BIOS_START_ADDRESS		0xF0000
+#define BIOS_MAP_LENGTH			0xFFFF
 
 #define AWARD_BIOS_NAME                     "Phoenix - AwardBIOS"
 #define AWARD_BIOS_NAME_ADDRESS             0x000FE061
@@ -100,47 +104,41 @@ static unsigned char is_adv_dev[8] = "yes";
 static unsigned char no_adv_dev[8] = "no";
 static unsigned char board_id[_ADVANTECH_BOARD_NAME_LENGTH];
 static bool check_result = false;
+struct class *my_class;
+static unsigned char *uc_ptaddr;
+static unsigned char *uc_epsaddr;
+static int adspname_major = ADVSPNAME_MAJOR;
+struct adspname_cdev *ads_cdev;
 
-//static int iobase = 0x000FE0C1;
-
-//static int io_range = 32;
-
-struct adspname_cdev{
+struct adspname_cdev {
 	struct cdev dev;
 	spinlock_t adspname_spinlock;
 };
 
-struct class *my_class;
-int adspname_major = ADVSPNAME_MAJOR;
-static unsigned char * uc_ptaddr;
-struct adspname_cdev * ads_cdev= NULL;
+typedef struct _adv_bios_info {
+	int eps_table;
+	unsigned short eps_length;
+	unsigned int *eps_address;
+	unsigned short eps_types;
+	char *baseboard_product_name[32];
+} adv_bios_info;
+static adv_bios_info adspname_info;
 
 static int adspname_ioctl (
 		struct file *file,
 		unsigned int cmd,
 		unsigned long arg )
 {  
-	/*
-	   unsigned short sdata[ 4 ];
-	   int idata[ 4 ];
-	   long ldata[ 4 ];
-	   int options;//, retval = -EINVAL;
-	   */
-
 	DEBUGPRINT("in ioctl()\n");
 
 	switch ( cmd )
 	{
 	case GETPNAME:
-#ifdef DEBUG
-		printk(KERN_INFO "Board name is: %s\n", board_id);
-#endif
+		DEBUGPRINT(KERN_INFO "Board name is: %s\n", board_id);
 		copy_to_user((void*)arg, board_id, sizeof(board_id));
 		break;
 	case CHKADVBOARD:
-#ifdef DEBUG
-		printk(KERN_INFO "Board name is: %s\n", board_id);
-#endif
+		DEBUGPRINT(KERN_INFO "Board name is: %s\n", board_id);
 		if(check_result)
 			copy_to_user((void*)arg, is_adv_dev, sizeof(is_adv_dev));
 		else
@@ -152,9 +150,7 @@ static int adspname_ioctl (
 	}
 	return 0;
 }
-// *****************************************************************************
-// Design Notes:  
-// -----------------------------------------------------------------------------
+
 static int adspname_open (
 		struct inode *inode, 
 		struct file *file )
@@ -169,9 +165,6 @@ static int adspname_open (
 	return 0;
 }
 
-// *****************************************************************************
-// Design Notes:  
-// -----------------------------------------------------------------------------
 static int adspname_release (
 		struct inode *inode, 
 		struct file *file )
@@ -183,9 +176,6 @@ static int adspname_release (
 	return 0;
 }
 
-// *****************************************************************************
-// Design Notes:  
-// -----------------------------------------------------------------------------
 static struct file_operations adspname_fops = {
 	.owner		=THIS_MODULE,
 	.unlocked_ioctl = adspname_ioctl,
@@ -193,26 +183,17 @@ static struct file_operations adspname_fops = {
 	.release	=adspname_release,
 };
 
-// *****************************************************************************
-// Design Notes:  
-// -----------------------------------------------------------------------------
 void adspname_cleanup ( void )
 {
-	/*if ( unregister_chrdev( major, "adspname" ) !=0 )
-	  {
-	  DEBUGPRINT( DEVICE_NAME " unregister of device failed!\n");
-	  }*/
 	dev_t devno=MKDEV(adspname_major,0);
 	device_destroy(my_class,devno);
 	class_destroy(my_class);
 	cdev_del(&ads_cdev->dev);
 	kfree(ads_cdev);
 	unregister_chrdev_region(devno,1);
-	//unregister_chrdev( major, "adspname" );
-	iounmap(( void* )uc_ptaddr );
 	DEBUGPRINT("in cleanup\n");
 }
-/******************************************************************************/
+
 static char * _MapIoSpace(unsigned int HWAddress, unsigned long Size)
 {
 	char *              ioPortBase = NULL;
@@ -239,33 +220,27 @@ static bool _IsBiosMatched(unsigned int BiosAddress, char *pBiosName, int BiosNa
 	return bMatched;
 }
 
-/********************************************************************************/
-// *****************************************************************************
-// Design Notes:  
-//      init our Module
-// -----------------------------------------------------------------------------
 int adspname_init ( void )
 { 
 	dev_t devno;
 	int ret;
 	int loopc = 0;
 	int length = 0;
+	int type0_str = 0;
+	int type1_str = 0;
+	int i = 0;
+	int is_advantech = 0;
 
-	if(adspname_major)
-	{
+	if (adspname_major) {
 		devno = MKDEV(adspname_major,0);
 		ret = register_chrdev_region(devno,1,DEVICE_NODE_NAME);
-		if(ret<0)
-		{
+		if (ret < 0) {
 			DEBUGPRINT("register fail!\r\n");
 			goto exit0;
 		}
-	}
-	else
-	{
+	} else {
 		ret = alloc_chrdev_region(&devno,0,1,DEVICE_NODE_NAME);
-		if(ret<0)
-		{
+		if (ret < 0) {
 			DEBUGPRINT("register fail!\r\n");
 			goto exit0;
 		}
@@ -273,8 +248,7 @@ int adspname_init ( void )
 	}
 
 	ads_cdev = kmalloc(sizeof(struct adspname_cdev),GFP_KERNEL);
-	if(!ads_cdev)
-	{
+	if (!ads_cdev) {
 		ret = -ENOMEM;
 		goto exit1;
 	}
@@ -284,92 +258,130 @@ int adspname_init ( void )
 	cdev_init(&ads_cdev->dev,&adspname_fops);
 	ads_cdev->dev.owner = THIS_MODULE;
 	ret = cdev_add(&ads_cdev->dev,devno,1);
-	if(ret<0)
-	{
+	if (ret < 0) {
 		DEBUGPRINT("cdev add fail!\r\n");
 		goto exit2;
 	}
 
 	my_class = class_create(THIS_MODULE,DEVICE_CLASS_NAME);
-	if(IS_ERR(my_class))
-	{
+	if (IS_ERR(my_class)) {
 		DEBUGPRINT("class create fail!\r\n");
 		goto exit3;
 	}
 
 	device_create(my_class,NULL,devno,"%s",DEVICE_FILE_NAME);
 
-	//if((register_chrdev( 250, "adspname", &adspname_fops)) < 0)
-	//{
-	//	printk("register_chrdev failed!\n");
-	//	return -ENODEV;
-	//}
-
-	// If Award BIOS
-	if(_IsBiosMatched(AWARD_BIOS_NAME_ADDRESS, AWARD_BIOS_NAME, AWARD_BIOS_NAME_LENGTH))
-	{
-#ifdef DEBUG
-		printk(KERN_INFO "=====================================================\n");
-		printk(KERN_INFO "     Product Name Detecting driver V%s [%s]\n", 
-				ADVANTECH_DIO_VER, ADVANTECH_DIO_DATE);
-		printk(KERN_INFO "     Advantech eAutomation Division.\n");
-		printk(KERN_INFO "=====================================================\n");
-		printk(KERN_INFO "Award BIOS\n");
-#endif
-	}
-	// If AMI BIOS
-	else //if(_IsBiosMatched(AMI_BIOS_NAME_ADDRESS, AMI_BIOS_NAME, AMI_BIOS_NAME_LENGTH))
-	{
-#ifdef DEBUG
-		printk(KERN_INFO "=====================================================\n");
-		printk(KERN_INFO "     Product Name Detecting driver V%s [%s]\n", 
-				ADVANTECH_DIO_VER, ADVANTECH_DIO_DATE);
-		printk(KERN_INFO "     Advantech eAutomation Division.\n");
-		printk(KERN_INFO "=====================================================\n");
-		printk(KERN_INFO "AMI BIOS\n");
-#endif
+	printk(KERN_INFO "=====================================================\n");
+	printk(KERN_INFO "     Product Name Detecting driver V%s [%s]\n", 
+			ADVANTECH_ADSPNAME_VER, ADVANTECH_ADSPNAME_DATE);
+	printk(KERN_INFO "     Advantech eAutomation Division.\n");
+	printk(KERN_INFO "=====================================================\n");
+	if (_IsBiosMatched(AWARD_BIOS_NAME_ADDRESS, AWARD_BIOS_NAME, AWARD_BIOS_NAME_LENGTH)) {
+		// If Award BIOS
+		DEBUGPRINT(KERN_INFO "Award BIOS\n");
+	} else if (_IsBiosMatched(AMI_BIOS_NAME_ADDRESS, AMI_BIOS_NAME, AMI_BIOS_NAME_LENGTH)) {
+		// If AMI BIOS
+		DEBUGPRINT(KERN_INFO "AMI BIOS\n");
+	} else {
+		// Unknow BIOS type
+		DEBUGPRINT(KERN_INFO "UNKNOW BIOS\n");
 	}
 
-	uc_ptaddr = ioremap_nocache(SEARCH_BOARD_NAME_ADDRESS, SEARCH_BOARD_NAME_LENGTH);
+	if (!(uc_ptaddr = ioremap_nocache(BIOS_START_ADDRESS, BIOS_MAP_LENGTH))) {
+		printk(KERN_ERR "Error: ioremap_nocache() \n");
+		return -ENXIO;
+	}
+
+	// Try to Read the product name from UEFI BIOS(DMI) EPS table
+	for (loopc = 0; loopc < BIOS_MAP_LENGTH; loopc++) {
+		if (uc_ptaddr[loopc] == '_' 
+					&& uc_ptaddr[loopc+0x1] == 'S' 
+					&& uc_ptaddr[loopc+0x2] == 'M' 
+					&& uc_ptaddr[loopc+0x3] == '_'
+					&& uc_ptaddr[loopc+0x10] == '_'
+					&& uc_ptaddr[loopc+0x11] == 'D'
+					&& uc_ptaddr[loopc+0x12] == 'M'
+					&& uc_ptaddr[loopc+0x13] == 'I'
+					&& uc_ptaddr[loopc+0x14] == '_'
+					) {
+			DEBUGPRINT(KERN_INFO "UEFI BIOS \n");
+			adspname_info.eps_table = 1;
+			break;
+		}
+	}
+
+	memset(board_id, 0, sizeof(board_id));
 	check_result = false;
-	for(loopc = 0; loopc < SEARCH_BOARD_NAME_LENGTH; loopc++)
-	{
-		if((uc_ptaddr[loopc]=='T' && uc_ptaddr[loopc+1]=='P' && uc_ptaddr[loopc+2]=='C')
+	// If EPS table exist, read type1(system information)
+	if (adspname_info.eps_table) {
+		if (!(uc_epsaddr = (char *)ioremap_nocache(((unsigned int *)&uc_ptaddr[loopc+0x18])[0], 
+						((unsigned short *)&uc_ptaddr[loopc+0x16])[0]))) {
+			printk(KERN_ERR "Error: ioremap_nocache() \n");
+			return -ENXIO;
+		}
+		type0_str = (int)uc_epsaddr[1];
+		for (i = type0_str; i < (type0_str+512); i++) {
+			if (uc_epsaddr[i] == 0 && uc_epsaddr[i+1] == 0 && uc_epsaddr[i+2] == 1) {
+				type1_str = i + uc_epsaddr[i+3];
+				break;
+			}
+		}
+		for (i = type1_str; i < (type1_str+512); i++) {
+			if (uc_epsaddr[i] == 'A' && uc_epsaddr[i+1] == 'd' && uc_epsaddr[i+2] == 'v' 
+					&& uc_epsaddr[i+3] == 'a' && uc_epsaddr[i+4] == 'n' && uc_epsaddr[i+5] == 't' 
+					&& uc_epsaddr[i+6] == 'e' && uc_epsaddr[i+7] == 'c' &&uc_epsaddr[i+8] == 'h') {
+				check_result = true;
+				is_advantech = 1;
+				DEBUGPRINT(KERN_INFO "match Advantech \n");
+			}
+			if (uc_epsaddr[i] == 0) {
+				i++;
+				type1_str = i;
+				break;
+			}
+		}
+		length = 2;
+		while ((uc_epsaddr[type1_str + length] != 0)
+				&& (length < _ADVANTECH_BOARD_NAME_LENGTH)) {
+			length += 1;
+		}
+		memmove(board_id, &uc_epsaddr[type1_str], length);
+		iounmap((void *)uc_epsaddr);
+		if (is_advantech) {
+			iounmap(( void* )uc_ptaddr);
+			return 0;
+		}
+	} 
+	
+	// It is an old BIOS, read from 0x000F0000
+	for (loopc = 0; loopc < BIOS_MAP_LENGTH; loopc++) {
+		if ((uc_ptaddr[loopc]=='T' && uc_ptaddr[loopc+1]=='P' && uc_ptaddr[loopc+2]=='C')
 				|| (uc_ptaddr[loopc]=='A' && uc_ptaddr[loopc+1]=='D' && uc_ptaddr[loopc+2]=='A' && uc_ptaddr[loopc+3]=='M')
 				|| (uc_ptaddr[loopc]=='P' && uc_ptaddr[loopc+1]=='P' && uc_ptaddr[loopc+2]=='C')
 				|| (uc_ptaddr[loopc]=='U' && uc_ptaddr[loopc+1]=='N' && uc_ptaddr[loopc+2]=='O')
 				|| (uc_ptaddr[loopc]=='I' && uc_ptaddr[loopc+1]=='T' && uc_ptaddr[loopc+2]=='A')
 				|| (uc_ptaddr[loopc]=='A' && uc_ptaddr[loopc+1]=='I' && uc_ptaddr[loopc+2]=='M' && uc_ptaddr[loopc+3]=='C')
 				|| (uc_ptaddr[loopc]=='A' && uc_ptaddr[loopc+1]=='P' && uc_ptaddr[loopc+2]=='A' && uc_ptaddr[loopc+3]=='X')
-				|| (uc_ptaddr[loopc]=='M' && uc_ptaddr[loopc+1]=='I' && uc_ptaddr[loopc+2]=='O'))
-		{
+				|| (uc_ptaddr[loopc]=='M' && uc_ptaddr[loopc+1]=='I' && uc_ptaddr[loopc+2]=='O')) {
 			check_result = true;
 			length = 2;
-			while((uc_ptaddr[loopc + length] != ' ') && (length < _ADVANTECH_BOARD_NAME_LENGTH))
-			{
+			while ((uc_ptaddr[loopc + length] != ' ') 
+					&& (length < _ADVANTECH_BOARD_NAME_LENGTH)) {
 				length += 1;
 			}
 			break;
 		}
 	}
-
-	memset(board_id, 0, sizeof(board_id));
-
-	if(check_result)
-	{
+	
+	if(check_result) {
 		memmove(board_id, uc_ptaddr+loopc, length);
-#ifdef DEBUG
-		printk(KERN_INFO "loopc: %d\n", loopc);
-		printk(KERN_INFO "Is: %s\n", board_id);
-#endif
-	}
-	else
-	{
-#ifdef DEBUG
-		printk(KERN_INFO "Is no advantech device!\n");
-#endif
+		DEBUGPRINT(KERN_INFO "loopc: %d\n", loopc);
+		DEBUGPRINT(KERN_INFO "Is: %s\n", board_id);
+	} else {
+		DEBUGPRINT(KERN_INFO "Is no advantech device!\n");
 	}
 
+	iounmap(( void* )uc_ptaddr);
 	return 0;
 
 exit3:
