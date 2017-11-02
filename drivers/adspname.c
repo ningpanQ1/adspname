@@ -21,6 +21,8 @@ Change log:      Version 1.00 <01/16/2006> Joshua Lan
                    - Update to support detect Advantech product name
 				     in UEFI BIOS(DMI).
                    - Add some new ioctl item.
+                 Version 2.01 <11/02/2017> Ji Xu
+                   - Fixed some complier warnings in ISO C90 environment.
 
 Description:     This is a virtual driver to detect Advantech module.
 Status: 	     works
@@ -124,10 +126,11 @@ typedef struct _adv_bios_info {
 } adv_bios_info;
 static adv_bios_info adspname_info;
 
-static int adspname_ioctl (
-		struct file *file,
-		unsigned int cmd,
-		unsigned long arg )
+#if LINUX_VERSION_CODE < KERNEL_VERSION(2, 6, 36)
+static ssize_t adspname_ioctl (struct inode *inode, struct file *file, unsigned int cmd, unsigned long arg )
+#else
+static long adspname_ioctl (struct file *file, unsigned int cmd, unsigned long arg )
+#endif
 {  
 	DEBUGPRINT("in ioctl()\n");
 
@@ -155,11 +158,13 @@ static int adspname_open (
 		struct inode *inode, 
 		struct file *file )
 {
+	struct adspname_cdev *dev;
+
 	DEBUGPRINT("in open()\n");
 #if LINUX_VERSION_CODE < KERNEL_VERSION(2,6,0)
 	MOD_INC_USE_COUNT;
 #endif
-	struct adspname_cdev *dev;
+
 	dev = container_of(inode->i_cdev,struct adspname_cdev,dev);
 	file->private_data = dev;
 	return 0;
@@ -177,10 +182,14 @@ static int adspname_release (
 }
 
 static struct file_operations adspname_fops = {
-	.owner		=THIS_MODULE,
-	.unlocked_ioctl = adspname_ioctl,
-	.open		=adspname_open,
-	.release	=adspname_release,
+owner:		THIS_MODULE,
+#if LINUX_VERSION_CODE < KERNEL_VERSION(2, 6, 36)
+	ioctl:		adspname_ioctl,
+#else
+	unlocked_ioctl: adspname_ioctl,
+#endif
+	open:		adspname_open,
+	release:	adspname_release,
 };
 
 void adspname_cleanup ( void )
@@ -316,8 +325,11 @@ int adspname_init ( void )
 	if (adspname_info.eps_table) {
 		if (!(uc_epsaddr = (char *)ioremap_nocache(((unsigned int *)&uc_ptaddr[loopc+0x18])[0], 
 						((unsigned short *)&uc_ptaddr[loopc+0x16])[0]))) {
-			printk(KERN_ERR "Error: ioremap_nocache() \n");
-			return -ENXIO;
+			if (!(uc_epsaddr = (char *)ioremap_cache(((unsigned int *)&uc_ptaddr[loopc+0x18])[0], 
+							((unsigned short *)&uc_ptaddr[loopc+0x16])[0]))) {
+				printk(KERN_ERR "Error: both ioremap_nocache() and ioremap_cache() exec failed! \n");
+				return -ENXIO;
+			}
 		}
 		type0_str = (int)uc_epsaddr[1];
 		for (i = type0_str; i < (type0_str+512); i++) {
