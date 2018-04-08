@@ -23,6 +23,8 @@ Change log:      Version 1.00 <01/16/2006> Joshua Lan
                    - Add some new ioctl item.
                  Version 2.01 <11/02/2017> Ji Xu
                    - Fixed some complier warnings in ISO C90 environment.
+                 Version 2.02 <03/22/2018> Ji Xu
+                   - Add some new device title.
 
 Description:     This is a virtual driver to detect Advantech module.
 Status: 	     works
@@ -63,8 +65,8 @@ implied warranty.
 #define KERNEL_VERSION(a,b,c) ((a)*65536+(b)*256+(c))
 #endif
 
-#define ADVANTECH_ADSPNAME_VER   "2.00"
-#define ADVANTECH_ADSPNAME_DATE  "09/19/2017" 
+#define ADVANTECH_ADSPNAME_VER   "2.02"
+#define ADVANTECH_ADSPNAME_DATE  "03/22/2018" 
 
 #define ADSPNAME_MAGIC 		'p'
 #define GETPNAME			_IO(ADSPNAME_MAGIC, 1)
@@ -371,6 +373,7 @@ int adspname_init ( void )
 				|| (uc_ptaddr[loopc]=='A' && uc_ptaddr[loopc+1]=='D' && uc_ptaddr[loopc+2]=='A' && uc_ptaddr[loopc+3]=='M')
 				|| (uc_ptaddr[loopc]=='P' && uc_ptaddr[loopc+1]=='P' && uc_ptaddr[loopc+2]=='C')
 				|| (uc_ptaddr[loopc]=='U' && uc_ptaddr[loopc+1]=='N' && uc_ptaddr[loopc+2]=='O')
+				|| (uc_ptaddr[loopc]=='E' && uc_ptaddr[loopc+1]=='C' && uc_ptaddr[loopc+2]=='U')
 				|| (uc_ptaddr[loopc]=='I' && uc_ptaddr[loopc+1]=='T' && uc_ptaddr[loopc+2]=='A')
 				|| (uc_ptaddr[loopc]=='A' && uc_ptaddr[loopc+1]=='I' && uc_ptaddr[loopc+2]=='M' && uc_ptaddr[loopc+3]=='C')
 				|| (uc_ptaddr[loopc]=='A' && uc_ptaddr[loopc+1]=='P' && uc_ptaddr[loopc+2]=='A' && uc_ptaddr[loopc+3]=='X')
@@ -386,6 +389,7 @@ int adspname_init ( void )
 	}
 	
 	if(check_result) {
+		memset(board_id, 0, sizeof(board_id));
 		memmove(board_id, uc_ptaddr+loopc, length);
 		DEBUGPRINT(KERN_INFO "loopc: %d\n", loopc);
 		DEBUGPRINT(KERN_INFO "Is: %s\n", board_id);
