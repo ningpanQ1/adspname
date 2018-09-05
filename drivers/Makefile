@@ -21,3 +21,4 @@ clean:
 	@rm -rf Module.*
 	@rm -rf *~
 	@rm -rf *order
+	@rm -rf .cache*

@@ -25,6 +25,8 @@ Change log:      Version 1.00 <01/16/2006> Joshua Lan
                    - Fixed some complier warnings in ISO C90 environment.
                  Version 2.02 <03/22/2018> Ji Xu
                    - Add some new device title.
+                 Version 2.03 <09/05/2018> Jianfeng.dai
+                   - Add /proc/board interface for device name
 
 Description:     This is a virtual driver to detect Advantech module.
 Status: 	     works
@@ -60,13 +62,15 @@ implied warranty.
 #include <linux/fs.h>
 #include <asm/uaccess.h>
 #include <linux/spinlock.h>
+#include <linux/proc_fs.h>
+#include <linux/seq_file.h>
 
 #ifndef KERNEL_VERSION
 #define KERNEL_VERSION(a,b,c) ((a)*65536+(b)*256+(c))
 #endif
 
-#define ADVANTECH_ADSPNAME_VER   "2.02"
-#define ADVANTECH_ADSPNAME_DATE  "03/22/2018" 
+#define ADVANTECH_ADSPNAME_VER   "2.03"
+#define ADVANTECH_ADSPNAME_DATE  "09/05/2018" 
 
 #define ADSPNAME_MAGIC 		'p'
 #define GETPNAME			_IO(ADSPNAME_MAGIC, 1)
@@ -183,6 +187,30 @@ static int adspname_release (
 	return 0;
 }
 
+static int board_proc_show(struct seq_file *seq, void *v)
+{
+   char boardname[20]; 
+   DEBUGPRINT("in board_proc_show()\n");
+   strcat(boardname,board_id);
+   strcat(boardname,"\n"); 
+   seq_puts(seq, boardname );
+   return 0;        
+}
+
+static int board_proc_open(struct inode *inode, struct file *file)
+{
+   return  single_open(file, board_proc_show, inode->i_private);
+} 
+
+static const struct file_operations  board_proc_fops = {
+ .open  = board_proc_open,
+ .read  = seq_read,
+  //.write  = mytest_proc_write,
+ .llseek  = seq_lseek,
+ .release = single_release,
+};
+
+
 static struct file_operations adspname_fops = {
 owner:		THIS_MODULE,
 #if LINUX_VERSION_CODE < KERNEL_VERSION(2, 6, 36)
@@ -202,6 +230,9 @@ void adspname_cleanup ( void )
 	cdev_del(&ads_cdev->dev);
 	kfree(ads_cdev);
 	unregister_chrdev_region(devno,1);
+	if(check_result) {
+		remove_proc_entry("board",NULL);
+	}
 	DEBUGPRINT("in cleanup\n");
 }
 
@@ -241,7 +272,8 @@ int adspname_init ( void )
 	int type1_str = 0;
 	int i = 0;
 	int is_advantech = 0;
-
+	struct proc_dir_entry *entry;   
+	
 	if (adspname_major) {
 		devno = MKDEV(adspname_major,0);
 		ret = register_chrdev_region(devno,1,DEVICE_NODE_NAME);
@@ -287,6 +319,8 @@ int adspname_init ( void )
 			ADVANTECH_ADSPNAME_VER, ADVANTECH_ADSPNAME_DATE);
 	printk(KERN_INFO "     Advantech eAutomation Division.\n");
 	printk(KERN_INFO "=====================================================\n");
+	
+ 
 	if (_IsBiosMatched(AWARD_BIOS_NAME_ADDRESS, AWARD_BIOS_NAME, AWARD_BIOS_NAME_LENGTH)) {
 		// If Award BIOS
 		DEBUGPRINT(KERN_INFO "Award BIOS\n");
@@ -303,6 +337,8 @@ int adspname_init ( void )
 		return -ENXIO;
 	}
 
+
+ 
 	// Try to Read the product name from UEFI BIOS(DMI) EPS table
 	for (loopc = 0; loopc < BIOS_MAP_LENGTH; loopc++) {
 		if (uc_ptaddr[loopc] == '_' 
@@ -363,6 +399,12 @@ int adspname_init ( void )
 		iounmap((void *)uc_epsaddr);
 		if (is_advantech) {
 			iounmap(( void* )uc_ptaddr);
+			printk(KERN_INFO "This Advantech Product is: %s\n", board_id);
+			entry = proc_create("board", 0x0444, NULL, &board_proc_fops);
+			if (NULL == entry)
+			{
+			DEBUGPRINT(KERN_INFO "Count not create /proc/board file!\n");
+			}
 			return 0;
 		}
 	} 
@@ -392,10 +434,16 @@ int adspname_init ( void )
 		memset(board_id, 0, sizeof(board_id));
 		memmove(board_id, uc_ptaddr+loopc, length);
 		DEBUGPRINT(KERN_INFO "loopc: %d\n", loopc);
-		DEBUGPRINT(KERN_INFO "Is: %s\n", board_id);
+		printk(KERN_INFO "This Advantech Product is: %s\n", board_id);
+		entry = proc_create("board", 0x0444, NULL, &board_proc_fops);
+		if (NULL == entry)
+		{
+			DEBUGPRINT(KERN_INFO "Count not create /proc/board file!\n");
+		}
 	} else {
 		DEBUGPRINT(KERN_INFO "Is no advantech device!\n");
 	}
+ 
 
 	iounmap(( void* )uc_ptaddr);
 	return 0;
