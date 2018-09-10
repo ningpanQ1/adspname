@@ -189,7 +189,7 @@ static int adspname_release (
 
 static int board_proc_show(struct seq_file *seq, void *v)
 {
-   char boardname[20]; 
+   char boardname[60]; 
    DEBUGPRINT("in board_proc_show()\n");
    strcat(boardname,board_id);
    strcat(boardname,"\n"); 
