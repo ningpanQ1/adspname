@@ -10,7 +10,7 @@ PWD := $(shell pwd)
 ADVMOD := adspname
 
 default:
-	@make -C /lib/modules/$(UNAME)/build SUBDIRS=$(PWD) modules
+	@make -C /lib/modules/$(UNAME)/build M=$(PWD) modules
 
 clean:
 	@rm -f *.o

@@ -191,6 +191,7 @@ static int board_proc_show(struct seq_file *seq, void *v)
 {
    char boardname[60]; 
    DEBUGPRINT("in board_proc_show()\n");
+   memset(boardname,0,sizeof(boardname));
    strcat(boardname,board_id);
    strcat(boardname,"\n"); 
    seq_puts(seq, boardname );
