@@ -27,6 +27,8 @@ Change log:      Version 1.00 <01/16/2006> Joshua Lan
                    - Add some new device title.
                  Version 2.03 <09/05/2018> Jianfeng.dai
                    - Add /proc/board interface for device name
+                 Version 2.04 <09/13/2020> Jianfeng.dai
+                   - Add /proc/board interface for device name
 
 Description:     This is a virtual driver to detect Advantech module.
 Status: 	     works
@@ -114,7 +116,7 @@ static unsigned char board_id[_ADVANTECH_BOARD_NAME_LENGTH];
 static bool check_result = false;
 struct class *my_class;
 static unsigned char *uc_ptaddr;
-static unsigned char *uc_epsaddr;
+//static unsigned char *uc_epsaddr;
 static int adspname_major = ADVSPNAME_MAJOR;
 struct adspname_cdev *ads_cdev;
 
@@ -130,7 +132,7 @@ typedef struct _adv_bios_info {
 	unsigned short eps_types;
 	char *baseboard_product_name[32];
 } adv_bios_info;
-static adv_bios_info adspname_info;
+//static adv_bios_info adspname_info;
 
 #if LINUX_VERSION_CODE < KERNEL_VERSION(2, 6, 36)
 static ssize_t adspname_ioctl (struct inode *inode, struct file *file, unsigned int cmd, unsigned long arg )
@@ -269,10 +271,12 @@ int adspname_init ( void )
 	int ret;
 	int loopc = 0;
 	int length = 0;
-	int type0_str = 0;
-	int type1_str = 0;
-	int i = 0;
+	//int type0_str = 0;
+	//int type1_str = 0;
+	//int i = 0;
 	int is_advantech = 0;
+	const char * vendor_id;
+	const char * product_id;
 	struct proc_dir_entry *entry;   
 	
 	if (adspname_major) {
@@ -329,8 +333,30 @@ int adspname_init ( void )
 		// If AMI BIOS
 		DEBUGPRINT(KERN_INFO "AMI BIOS\n");
 	} else {
-		// Unknow BIOS type
-		DEBUGPRINT(KERN_INFO "UNKNOW BIOS\n");
+		// UEFI BIOS
+		DEBUGPRINT(KERN_INFO "UEFI BIOS\n");
+	
+		vendor_id = dmi_get_system_info(DMI_SYS_VENDOR);
+		if (memcmp(vendor_id,"Advantech", sizeof("Advantech")))
+		{
+			is_advantech = true;
+		}
+
+		if (is_advantech) {
+			product_id = dmi_get_system_info(DMI_PRODUCT_NAME);
+			printk(KERN_INFO "This Advantech Product is: %s\n", product_id);
+			entry = proc_create("board", 0x0444, NULL, &board_proc_fops);
+			if (NULL == entry)
+			{
+				DEBUGPRINT(KERN_INFO "Count not create /proc/board file!\n");
+			}
+			return 0;
+		}
+		else
+		{
+			DEBUGPRINT(KERN_INFO "unknow BIOS\n");
+			goto exit3;
+		}
 	}
 
 	if (!(uc_ptaddr = ioremap_nocache(BIOS_START_ADDRESS, BIOS_MAP_LENGTH))) {
@@ -339,7 +365,7 @@ int adspname_init ( void )
 	}
 
 
- 
+        /*
 	// Try to Read the product name from UEFI BIOS(DMI) EPS table
 	for (loopc = 0; loopc < BIOS_MAP_LENGTH; loopc++) {
 		if (uc_ptaddr[loopc] == '_' 
@@ -409,7 +435,7 @@ int adspname_init ( void )
 			return 0;
 		}
 	} 
-	
+	*/
 	// It is an old BIOS, read from 0x000F0000
 	for (loopc = 0; loopc < BIOS_MAP_LENGTH; loopc++) {
 		if ((uc_ptaddr[loopc]=='T' && uc_ptaddr[loopc+1]=='P' && uc_ptaddr[loopc+2]=='C')
