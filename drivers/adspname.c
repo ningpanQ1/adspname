@@ -71,8 +71,8 @@ implied warranty.
 #define KERNEL_VERSION(a,b,c) ((a)*65536+(b)*256+(c))
 #endif
 
-#define ADVANTECH_ADSPNAME_VER   "2.03"
-#define ADVANTECH_ADSPNAME_DATE  "09/05/2018" 
+#define ADVANTECH_ADSPNAME_VER   "2.04"
+#define ADVANTECH_ADSPNAME_DATE  "09/13/2020" 
 
 #define ADSPNAME_MAGIC 		'p'
 #define GETPNAME			_IO(ADSPNAME_MAGIC, 1)
@@ -337,14 +337,22 @@ int adspname_init ( void )
 		DEBUGPRINT(KERN_INFO "UEFI BIOS\n");
 	
 		vendor_id = dmi_get_system_info(DMI_SYS_VENDOR);
-		if (memcmp(vendor_id,"Advantech", sizeof("Advantech")))
+		if (memcmp(vendor_id,"Advantech", sizeof("Advantech")) == 0 )
 		{
 			is_advantech = true;
 		}
 
 		if (is_advantech) {
+			check_result = true;
 			product_id = dmi_get_system_info(DMI_PRODUCT_NAME);
-			printk(KERN_INFO "This Advantech Product is: %s\n", product_id);
+			length = 0;
+			while ( (product_id[length] != ' ') 
+					&& (length < _ADVANTECH_BOARD_NAME_LENGTH)) {
+				length += 1;
+			}
+		        memset(board_id, 0, sizeof(board_id));
+		        memmove(board_id, product_id, length);
+			printk(KERN_INFO "This Advantech Product is: %s\n", board_id);
 			entry = proc_create("board", 0x0444, NULL, &board_proc_fops);
 			if (NULL == entry)
 			{
@@ -434,7 +442,11 @@ int adspname_init ( void )
 			}
 			return 0;
 		}
-	} 
+	}                         while ((uc_ptaddr[loopc + length] != ' ')
+                                        && (length < _ADVANTECH_BOARD_NAME_LENGTH)) {
+                                length += 1;
+                        }
+
 	*/
 	// It is an old BIOS, read from 0x000F0000
 	for (loopc = 0; loopc < BIOS_MAP_LENGTH; loopc++) {
