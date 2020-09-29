@@ -28,7 +28,7 @@ Change log:      Version 1.00 <01/16/2006> Joshua Lan
                  Version 2.03 <09/05/2018> Jianfeng.dai
                    - Add /proc/board interface for device name
                  Version 2.04 <09/13/2020> Jianfeng.dai
-                   - Add /proc/board interface for device name
+                   - use kernel API to get DMI information
 
 Description:     This is a virtual driver to detect Advantech module.
 Status: 	     works
@@ -326,45 +326,45 @@ int adspname_init ( void )
 	printk(KERN_INFO "=====================================================\n");
 	
  
+
+	vendor_id = dmi_get_system_info(DMI_SYS_VENDOR);
+	if (memcmp(vendor_id,"Advantech", sizeof("Advantech")) == 0 )
+	{
+		DEBUGPRINT(KERN_INFO "UEFI BIOS\n");
+		is_advantech = true;
+	}
+
+	if (is_advantech) {
+		check_result = true;
+		product_id = dmi_get_system_info(DMI_PRODUCT_NAME);
+		length = 0;
+		while ( (product_id[length] != ' ') 
+				&& (length < _ADVANTECH_BOARD_NAME_LENGTH)) {
+			length += 1;
+		}
+		memset(board_id, 0, sizeof(board_id));
+	        memmove(board_id, product_id, length);
+		printk(KERN_INFO "This Advantech Product is: %s\n", board_id);
+		entry = proc_create("board", 0x0444, NULL, &board_proc_fops);
+		if (NULL == entry)
+		{
+			DEBUGPRINT(KERN_INFO "Count not create /proc/board file!\n");
+		}
+		return 0;
+	}
+
+	//old BIOS
 	if (_IsBiosMatched(AWARD_BIOS_NAME_ADDRESS, AWARD_BIOS_NAME, AWARD_BIOS_NAME_LENGTH)) {
 		// If Award BIOS
 		DEBUGPRINT(KERN_INFO "Award BIOS\n");
 	} else if (_IsBiosMatched(AMI_BIOS_NAME_ADDRESS, AMI_BIOS_NAME, AMI_BIOS_NAME_LENGTH)) {
 		// If AMI BIOS
 		DEBUGPRINT(KERN_INFO "AMI BIOS\n");
-	} else {
-		// UEFI BIOS
-		DEBUGPRINT(KERN_INFO "UEFI BIOS\n");
-	
-		vendor_id = dmi_get_system_info(DMI_SYS_VENDOR);
-		if (memcmp(vendor_id,"Advantech", sizeof("Advantech")) == 0 )
-		{
-			is_advantech = true;
-		}
-
-		if (is_advantech) {
-			check_result = true;
-			product_id = dmi_get_system_info(DMI_PRODUCT_NAME);
-			length = 0;
-			while ( (product_id[length] != ' ') 
-					&& (length < _ADVANTECH_BOARD_NAME_LENGTH)) {
-				length += 1;
-			}
-		        memset(board_id, 0, sizeof(board_id));
-		        memmove(board_id, product_id, length);
-			printk(KERN_INFO "This Advantech Product is: %s\n", board_id);
-			entry = proc_create("board", 0x0444, NULL, &board_proc_fops);
-			if (NULL == entry)
-			{
-				DEBUGPRINT(KERN_INFO "Count not create /proc/board file!\n");
-			}
-			return 0;
-		}
-		else
-		{
-			DEBUGPRINT(KERN_INFO "unknow BIOS\n");
-			goto exit3;
-		}
+	} 
+	else
+	{
+		DEBUGPRINT(KERN_INFO "unknow BIOS\n");
+		goto exit3;
 	}
 
 	if (!(uc_ptaddr = ioremap_nocache(BIOS_START_ADDRESS, BIOS_MAP_LENGTH))) {
