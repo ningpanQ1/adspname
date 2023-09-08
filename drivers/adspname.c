@@ -205,12 +205,12 @@ static int board_proc_open(struct inode *inode, struct file *file)
    return  single_open(file, board_proc_show, inode->i_private);
 } 
 
-static const struct file_operations  board_proc_fops = {
- .open  = board_proc_open,
- .read  = seq_read,
+static const struct proc_ops  board_proc_ops = {
+ .proc_open  = board_proc_open,
+ .proc_read  = seq_read,
   //.write  = mytest_proc_write,
- .llseek  = seq_lseek,
- .release = single_release,
+ .proc_lseek  = seq_lseek,
+ .proc_release = single_release,
 };
 
 
@@ -242,7 +242,7 @@ void adspname_cleanup ( void )
 static char * _MapIoSpace(unsigned int HWAddress, unsigned long Size)
 {
 	char *              ioPortBase = NULL;
-	ioPortBase = ioremap_nocache(HWAddress, Size);
+	ioPortBase = ioremap(HWAddress, Size);
 	return (ioPortBase);
 }
 
@@ -345,7 +345,7 @@ int adspname_init ( void )
 		memset(board_id, 0, sizeof(board_id));
 	        memmove(board_id, product_id, length);
 		printk(KERN_INFO "This Advantech Product is: %s\n", board_id);
-		entry = proc_create("board", 0x0444, NULL, &board_proc_fops);
+		entry = proc_create("board", 0x0444, NULL, &board_proc_ops);
 		if (NULL == entry)
 		{
 			DEBUGPRINT(KERN_INFO "Count not create /proc/board file!\n");
@@ -367,7 +367,7 @@ int adspname_init ( void )
 		goto exit3;
 	}
 
-	if (!(uc_ptaddr = ioremap_nocache(BIOS_START_ADDRESS, BIOS_MAP_LENGTH))) {
+	if (!(uc_ptaddr = ioremap(BIOS_START_ADDRESS, BIOS_MAP_LENGTH))) {
 		printk(KERN_ERR "Error: ioremap_nocache() \n");
 		return -ENXIO;
 	}
@@ -396,9 +396,9 @@ int adspname_init ( void )
 	check_result = false;
 	// If EPS table exist, read type1(system information)
 	if (adspname_info.eps_table) {
-		if (!(uc_epsaddr = (char *)ioremap_nocache(((unsigned int *)&uc_ptaddr[loopc+0x18])[0], 
+		if (!(uc_epsaddr = (char *)ioremap(((unsigned int *)&uc_ptaddr[loopc+0x18])[0], 
 						((unsigned short *)&uc_ptaddr[loopc+0x16])[0]))) {
-			if (!(uc_epsaddr = (char *)ioremap_cache(((unsigned int *)&uc_ptaddr[loopc+0x18])[0], 
+			if (!(uc_epsaddr = (char *)ioremap(((unsigned int *)&uc_ptaddr[loopc+0x18])[0], 
 							((unsigned short *)&uc_ptaddr[loopc+0x16])[0]))) {
 				printk(KERN_ERR "Error: both ioremap_nocache() and ioremap_cache() exec failed! \n");
 				return -ENXIO;
@@ -435,7 +435,7 @@ int adspname_init ( void )
 		if (is_advantech) {
 			iounmap(( void* )uc_ptaddr);
 			printk(KERN_INFO "This Advantech Product is: %s\n", board_id);
-			entry = proc_create("board", 0x0444, NULL, &board_proc_fops);
+			entry = proc_create("board", 0x0444, NULL, &board_proc_ops);
 			if (NULL == entry)
 			{
 			DEBUGPRINT(KERN_INFO "Count not create /proc/board file!\n");
@@ -474,7 +474,7 @@ int adspname_init ( void )
 		memmove(board_id, uc_ptaddr+loopc, length);
 		DEBUGPRINT(KERN_INFO "loopc: %d\n", loopc);
 		printk(KERN_INFO "This Advantech Product is: %s\n", board_id);
-		entry = proc_create("board", 0x0444, NULL, &board_proc_fops);
+		entry = proc_create("board", 0x0444, NULL, &board_proc_ops);
 		if (NULL == entry)
 		{
 			DEBUGPRINT(KERN_INFO "Count not create /proc/board file!\n");
